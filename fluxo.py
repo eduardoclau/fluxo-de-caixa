@@ -20,7 +20,7 @@ def load_data(uploaded_file):
             return None
     return None
 
-# Função para processar contas a receber
+# Função para processar contas a receber (planilha original)
 def process_receivables(df_receivables):
     # Remover caracteres não numéricos (como 'R$', '.', ',', etc.)
     df_receivables['Valor'] = df_receivables['Valor'].replace({'R\$': '', '\.': '', ',': '.'}, regex=True)
@@ -42,7 +42,7 @@ def process_receivables(df_receivables):
     
     return df_receivables
 
-# Função para processar contas a pagar
+# Função para processar contas a pagar (planilha original)
 def process_payables(df_payables):
     # Remover caracteres não numéricos (como 'R$', '.', ',', etc.)
     df_payables['Valor'] = df_payables['Valor'].replace({'R\$': '', '\.': '', ',': '.'}, regex=True)
@@ -64,8 +64,44 @@ def process_payables(df_payables):
     
     return df_payables
 
+# Função para processar o Relatório Caixa - Contas a Receber (nova planilha)
+def process_cash_report(df_cash_report):
+    # Verificar se a planilha é do tipo "RELATÓRIO CAIXA - CONTAS A RECEBER"
+    if 'Entrada' in df_cash_report.columns and 'Data' in df_cash_report.columns:
+        # Renomear a coluna 'Entrada' para 'Recebimentos'
+        df_cash_report = df_cash_report.rename(columns={'Entrada': 'Recebimentos'})
+        
+        # Remover pontos de milhares e substituir vírgula por ponto
+        df_cash_report['Recebimentos'] = (
+            df_cash_report['Recebimentos']
+            .str.replace('.', '', regex=False)  # Remove pontos de milhares
+            .str.replace(',', '.')  # Substitui vírgula por ponto
+            .astype(float)  # Converte para float
+        )
+        
+        # Verificar se todos os valores são numéricos após a substituição
+        if not df_cash_report['Recebimentos'].apply(lambda x: isinstance(x, (int, float))).all():
+            st.error("A coluna 'Recebimentos' contém valores não numéricos.")
+            return None
+        
+        # Converter a coluna 'Data' para datetime
+        df_cash_report['Data'] = pd.to_datetime(df_cash_report['Data'], format='%d/%m/%Y')
+        
+        # Adicionar uma coluna 'Conta Analítica' se não existir
+        if 'Conta Analítica' not in df_cash_report.columns:
+            df_cash_report['Conta Analítica'] = 'Outros'
+        
+        # Adicionar uma coluna 'Unidade' se não existir
+        if 'Unidade' not in df_cash_report.columns:
+            df_cash_report['Unidade'] = 'UNIDADE SOMBRIO'  # Ou outra unidade padrão
+        
+        return df_cash_report
+    else:
+        st.error("A planilha de Relatório Caixa - Contas a Receber não está no formato esperado.")
+        return None
+
 # Função para calcular o fluxo de caixa
-def calculate_cash_flow(df_receivables, df_payables, start_date, end_date, regime):
+def calculate_cash_flow(df_receivables, df_payables, df_cash_report, start_date, end_date, regime):
     date_range = pd.date_range(start=start_date, end=end_date, freq='D')
     cash_flow = pd.DataFrame(index=date_range, columns=['Recebimentos', 'Pagamentos', 'Saldo'])
     cash_flow = cash_flow.fillna(0)
@@ -73,10 +109,15 @@ def calculate_cash_flow(df_receivables, df_payables, start_date, end_date, regim
     # Definir a coluna de data com base no regime
     coluna_data = 'Pagamento' if regime == 'Caixa' else 'Data'
 
-    # Soma os recebimentos por dia
+    # Soma os recebimentos por dia (das duas planilhas de recebimentos)
     for index, row in df_receivables.iterrows():
         if row[coluna_data] in cash_flow.index:
             cash_flow.loc[row[coluna_data], 'Recebimentos'] += row['Recebimentos']
+
+    # Soma os recebimentos da terceira planilha (Relatório Caixa - Contas a Receber)
+    for index, row in df_cash_report.iterrows():
+        if row['Data'] in cash_flow.index:
+            cash_flow.loc[row['Data'], 'Recebimentos'] += row['Recebimentos']
 
     # Soma os pagamentos por dia
     for index, row in df_payables.iterrows():
@@ -151,24 +192,33 @@ def main():
     st.sidebar.header("Upload das Planilhas")
     uploaded_file_receivables = st.sidebar.file_uploader("Carregar Contas a Receber", type=["xlsx"])
     uploaded_file_payables = st.sidebar.file_uploader("Carregar Contas a Pagar", type=["xlsx"])
+    uploaded_file_cash_report = st.sidebar.file_uploader("Carregar Relatório Caixa - Contas a Receber", type=["xlsx"])
 
-    if uploaded_file_receivables and uploaded_file_payables:
+    if uploaded_file_receivables and uploaded_file_payables and uploaded_file_cash_report:
         df_receivables = load_data(uploaded_file_receivables)
         df_payables = load_data(uploaded_file_payables)
+        df_cash_report = load_data(uploaded_file_cash_report)
 
-        if df_receivables is not None and df_payables is not None:
+        if df_receivables is not None and df_payables is not None and df_cash_report is not None:
             df_receivables = process_receivables(df_receivables)
             df_payables = process_payables(df_payables)
+            df_cash_report = process_cash_report(df_cash_report)
+
+            # Exibir os dados processados da terceira planilha para depuração
+            st.subheader("Dados Processados da Terceira Planilha (Relatório Caixa - Contas a Receber)")
+            st.write(df_cash_report)
 
             # Filtro por Unidade
             st.sidebar.header("Filtros")
             unidades_recebimentos = df_receivables['Unidade'].unique()
             unidades_pagamentos = df_payables['Unidade'].unique()
+            unidades_cash_report = df_cash_report['Unidade'].unique()
             
             # Garantir que todas as unidades sejam strings e ordená-las
             unidades_recebimentos = [str(u) for u in unidades_recebimentos]
             unidades_pagamentos = [str(u) for u in unidades_pagamentos]
-            todas_unidades = sorted(set(unidades_recebimentos + unidades_pagamentos))
+            unidades_cash_report = [str(u) for u in unidades_cash_report]
+            todas_unidades = sorted(set(unidades_recebimentos + unidades_pagamentos + unidades_cash_report))
             
             # Adicionar a opção "Todas as Unidades"
             todas_unidades = ["Todas as Unidades"] + todas_unidades
@@ -182,9 +232,11 @@ def main():
             if unidade_selecionada == "Todas as Unidades":
                 df_receivables_filtrado = df_receivables
                 df_payables_filtrado = df_payables
+                df_cash_report_filtrado = df_cash_report
             else:
                 df_receivables_filtrado = df_receivables[df_receivables['Unidade'] == unidade_selecionada]
                 df_payables_filtrado = df_payables[df_payables['Unidade'] == unidade_selecionada]
+                df_cash_report_filtrado = df_cash_report[df_cash_report['Unidade'] == unidade_selecionada]
 
             # Selecionar o regime (Competência ou Caixa)
             regime = st.sidebar.selectbox(
@@ -208,7 +260,7 @@ def main():
             end_date = pd.to_datetime(end_date)
 
             # Calcular o fluxo de caixa
-            cash_flow = calculate_cash_flow(df_receivables_filtrado, df_payables_filtrado, start_date, end_date, regime)
+            cash_flow = calculate_cash_flow(df_receivables_filtrado, df_payables_filtrado, df_cash_report_filtrado, start_date, end_date, regime)
 
             # Exibir o fluxo de caixa
             st.subheader(f"Fluxo de Caixa Diário - Unidade: {unidade_selecionada} - Regime: {regime}")
