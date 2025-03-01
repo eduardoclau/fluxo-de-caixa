@@ -190,23 +190,47 @@ def main():
 
     # Upload das planilhas
     st.sidebar.header("Upload das Planilhas")
-    uploaded_file_receivables = st.sidebar.file_uploader("Carregar Contas a Receber", type=["xlsx"])
-    uploaded_file_payables = st.sidebar.file_uploader("Carregar Contas a Pagar", type=["xlsx"])
+    uploaded_file_receivables_quitadas = st.sidebar.file_uploader("Carregar Contas a Receber Quitadas", type=["xlsx"])
+    uploaded_file_receivables_pendentes = st.sidebar.file_uploader("Carregar Contas a Receber Pendentes", type=["xlsx"])
+    uploaded_file_payables_quitadas = st.sidebar.file_uploader("Carregar Contas a Pagar Quitadas", type=["xlsx"])
+    uploaded_file_payables_pendentes = st.sidebar.file_uploader("Carregar Contas a Pagar Pendentes", type=["xlsx"])
     uploaded_file_cash_report = st.sidebar.file_uploader("Carregar Relatório Caixa - Contas a Receber", type=["xlsx"])
 
-    if uploaded_file_receivables and uploaded_file_payables and uploaded_file_cash_report:
-        df_receivables = load_data(uploaded_file_receivables)
-        df_payables = load_data(uploaded_file_payables)
+    if (uploaded_file_receivables_quitadas and uploaded_file_receivables_pendentes and 
+        uploaded_file_payables_quitadas and uploaded_file_payables_pendentes and uploaded_file_cash_report):
+        
+        df_receivables_quitadas = load_data(uploaded_file_receivables_quitadas)
+        df_receivables_pendentes = load_data(uploaded_file_receivables_pendentes)
+        df_payables_quitadas = load_data(uploaded_file_payables_quitadas)
+        df_payables_pendentes = load_data(uploaded_file_payables_pendentes)
         df_cash_report = load_data(uploaded_file_cash_report)
 
-        if df_receivables is not None and df_payables is not None and df_cash_report is not None:
-            df_receivables = process_receivables(df_receivables)
-            df_payables = process_payables(df_payables)
+        if (df_receivables_quitadas is not None and df_receivables_pendentes is not None and 
+            df_payables_quitadas is not None and df_payables_pendentes is not None and df_cash_report is not None):
+            
+            # Processar as planilhas de contas a receber
+            df_receivables_quitadas = process_receivables(df_receivables_quitadas)
+            df_receivables_pendentes = process_receivables(df_receivables_pendentes)
+            
+            # Agregar as duas planilhas de contas a receber
+            df_receivables = pd.concat([df_receivables_quitadas, df_receivables_pendentes], ignore_index=True)
+            
+            # Processar as planilhas de contas a pagar
+            df_payables_quitadas = process_payables(df_payables_quitadas)
+            df_payables_pendentes = process_payables(df_payables_pendentes)
+            
+            # Agregar as duas planilhas de contas a pagar
+            df_payables = pd.concat([df_payables_quitadas, df_payables_pendentes], ignore_index=True)
+            
+            # Processar a planilha de relatório de caixa
             df_cash_report = process_cash_report(df_cash_report)
 
-            # Exibir os dados processados da terceira planilha para depuração
-            st.subheader("Dados Processados da Terceira Planilha (Relatório Caixa - Contas a Receber)")
-            st.write(df_cash_report)
+            # Exibir os dados processados das planilhas de contas a receber e a pagar
+            st.subheader("Dados Processados - Contas a Receber")
+            st.write(df_receivables)
+
+            st.subheader("Dados Processados - Contas a Pagar")
+            st.write(df_payables)
 
             # Filtro por Unidade
             st.sidebar.header("Filtros")
