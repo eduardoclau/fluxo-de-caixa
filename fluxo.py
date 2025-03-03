@@ -195,7 +195,7 @@ def generate_pdf(cash_flow, recebimentos_por_conta, pagamentos_por_conta, unidad
         pdf.cell(100, 10, txt=f"{row['Conta Analítica']}: R$ {row['Pagamentos']:,.2f}", ln=True)
     
     # Salvar o PDF
-    pdf_output = pdf.output(dest='S').encode('latin1')
+    pdf_output = pdf.output(dest='S')  # Retorna um bytearray
     return pdf_output
 
 # Função para criar um link de download
