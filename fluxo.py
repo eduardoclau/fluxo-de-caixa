@@ -100,8 +100,13 @@ def process_cash_report(df_cash_report):
         st.error("A planilha de Relatório Caixa - Contas a Receber não está no formato esperado.")
         return None
 
-# Função para calcular o fluxo de caixa
-def calculate_cash_flow(df_receivables, df_payables, df_cash_report, start_date, end_date, regime):
+# Adicionar campos de entrada para os saldos das contas bancárias no sidebar
+st.sidebar.header("Saldos Bancários Iniciais")
+saldo_sombrio = st.sidebar.number_input("Saldo Inicial - Conta Sombrio", value=0.0)
+saldo_fumaca = st.sidebar.number_input("Saldo Inicial - Conta Fumaça", value=0.0)
+
+# Função para calcular o fluxo de caixa com saldos iniciais
+def calculate_cash_flow(df_receivables, df_payables, df_cash_report, start_date, end_date, regime, saldo_sombrio, saldo_fumaca, unidade_selecionada):
     date_range = pd.date_range(start=start_date, end=end_date, freq='D')
     cash_flow = pd.DataFrame(index=date_range, columns=['Recebimentos', 'Pagamentos', 'Saldo'])
     cash_flow = cash_flow.fillna(0)
@@ -126,9 +131,23 @@ def calculate_cash_flow(df_receivables, df_payables, df_cash_report, start_date,
 
     # Calcula o saldo diário
     cash_flow['Saldo'] = cash_flow['Recebimentos'] - cash_flow['Pagamentos']
-    cash_flow['Saldo Acumulado'] = cash_flow['Saldo'].cumsum()
+
+    # Adicionar saldo inicial com base na unidade selecionada
+    if unidade_selecionada == "Todas as Unidades":
+        saldo_inicial = saldo_sombrio + saldo_fumaca
+    elif unidade_selecionada == "UNIDADE SOMBRIO":
+        saldo_inicial = saldo_sombrio
+    elif unidade_selecionada == "UNIDADE MORRO DA FUMAÇA":
+        saldo_inicial = saldo_fumaca
+    else:
+        saldo_inicial = 0
+
+    # Calcular o saldo acumulado
+    cash_flow['Saldo Acumulado'] = cash_flow['Saldo'].cumsum() + saldo_inicial
 
     return cash_flow
+
+
 
 # Função para gerar relatório em PDF
 def generate_pdf(cash_flow, recebimentos_por_conta, pagamentos_por_conta, unidade_selecionada, regime):
@@ -284,7 +303,7 @@ def main():
             end_date = pd.to_datetime(end_date)
 
             # Calcular o fluxo de caixa
-            cash_flow = calculate_cash_flow(df_receivables_filtrado, df_payables_filtrado, df_cash_report_filtrado, start_date, end_date, regime)
+            cash_flow = calculate_cash_flow(df_receivables_filtrado, df_payables_filtrado, df_cash_report_filtrado, start_date, end_date, regime, saldo_sombrio, saldo_fumaca, unidade_selecionada)
 
             # Exibir o fluxo de caixa
             st.subheader(f"Fluxo de Caixa Diário - Unidade: {unidade_selecionada} - Regime: {regime}")
