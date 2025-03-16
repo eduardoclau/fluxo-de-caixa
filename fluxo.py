@@ -33,6 +33,8 @@ def process_receivables(df_receivables):
         df_receivables['Pagamento'] = pd.to_datetime(df_receivables['Pagamento'], format='%d/%m/%Y')
     if 'Data' in df_receivables.columns:
         df_receivables['Data'] = pd.to_datetime(df_receivables['Data'], format='%d/%m/%Y')
+    if 'Vencimento' in df_receivables.columns:  # Adicionar processamento para "Vencimento"
+        df_receivables['Vencimento'] = pd.to_datetime(df_receivables['Vencimento'], format='%d/%m/%Y')
     
     # Converter a coluna 'Unidade' para string
     df_receivables['Unidade'] = df_receivables['Unidade'].astype(str)
@@ -55,6 +57,8 @@ def process_payables(df_payables):
         df_payables['Pagamento'] = pd.to_datetime(df_payables['Pagamento'], format='%d/%m/%Y')
     if 'Data' in df_payables.columns:
         df_payables['Data'] = pd.to_datetime(df_payables['Data'], format='%d/%m/%Y')
+    if 'Vencimento' in df_payables.columns:  # Adicionar processamento para "Vencimento"
+        df_payables['Vencimento'] = pd.to_datetime(df_payables['Vencimento'], format='%d/%m/%Y')
     
     # Converter a coluna 'Unidade' para string
     df_payables['Unidade'] = df_payables['Unidade'].astype(str)
@@ -112,7 +116,15 @@ def calculate_cash_flow(df_receivables, df_payables, df_cash_report, start_date,
     cash_flow = cash_flow.fillna(0)
 
     # Definir a coluna de data com base no regime
-    coluna_data = 'Pagamento' if regime == 'Caixa' else 'Data'
+    if regime == 'Caixa':
+        coluna_data = 'Pagamento'
+    elif regime == 'Competência':
+        coluna_data = 'Data'
+    elif regime == 'Caixa Projetado':  # Novo regime
+        coluna_data = 'Vencimento'
+    else:
+        st.error("Regime inválido selecionado.")
+        return None
 
     # Soma os recebimentos por dia (das duas planilhas de recebimentos)
     for index, row in df_receivables.iterrows():
@@ -121,8 +133,15 @@ def calculate_cash_flow(df_receivables, df_payables, df_cash_report, start_date,
 
     # Soma os recebimentos da terceira planilha (Relatório Caixa - Contas a Receber)
     for index, row in df_cash_report.iterrows():
-        if row['Data'] in cash_flow.index:
-            cash_flow.loc[row['Data'], 'Recebimentos'] += row['Recebimentos']
+        if regime == 'Caixa Projetado':
+            # No regime "Caixa Projetado", usamos a coluna 'Vencimento' para a planilha de Caixa - Contas a Receber
+            if 'Vencimento' in df_cash_report.columns:
+                if row['Vencimento'] in cash_flow.index:
+                    cash_flow.loc[row['Vencimento'], 'Recebimentos'] += row['Recebimentos']
+        else:
+            # Nos outros regimes, usamos a coluna 'Data'
+            if row['Data'] in cash_flow.index:
+                cash_flow.loc[row['Data'], 'Recebimentos'] += row['Recebimentos']
 
     # Soma os pagamentos por dia
     for index, row in df_payables.iterrows():
@@ -146,8 +165,6 @@ def calculate_cash_flow(df_receivables, df_payables, df_cash_report, start_date,
     cash_flow['Saldo Acumulado'] = cash_flow['Saldo'].cumsum() + saldo_inicial
 
     return cash_flow
-
-
 
 # Função para gerar relatório em PDF
 def generate_pdf(cash_flow, recebimentos_por_conta, pagamentos_por_conta, unidade_selecionada, regime):
@@ -281,14 +298,23 @@ def main():
                 df_payables_filtrado = df_payables[df_payables['Unidade'] == unidade_selecionada]
                 df_cash_report_filtrado = df_cash_report[df_cash_report['Unidade'] == unidade_selecionada]
 
-            # Selecionar o regime (Competência ou Caixa)
+            # Selecionar o regime (Competência, Caixa ou Caixa Projetado)
             regime = st.sidebar.selectbox(
                 "Selecione o Regime",
-                options=["Caixa", "Competência"]
+                options=["Caixa", "Competência", "Caixa Projetado"]  # Adicionar "Caixa Projetado"
             )
 
             # Verificar se a coluna correta existe no DataFrame
-            coluna_regime = 'Pagamento' if regime == 'Caixa' else 'Data'
+            if regime == 'Caixa':
+                coluna_regime = 'Pagamento'
+            elif regime == 'Competência':
+                coluna_regime = 'Data'
+            elif regime == 'Caixa Projetado':
+                coluna_regime = 'Vencimento'
+            else:
+                st.error("Regime inválido selecionado.")
+                return
+
             if coluna_regime not in df_receivables_filtrado.columns or coluna_regime not in df_payables_filtrado.columns:
                 st.error(f"A coluna '{coluna_regime}' não foi encontrada nos dados. Verifique o arquivo carregado.")
                 return
@@ -373,11 +399,17 @@ def main():
             # Filtrar os dados com base no regime
             if regime == 'Caixa':
                 coluna_regime = 'Pagamento'
-            else:
+            elif regime == 'Competência':
                 coluna_regime = 'Data'
+            elif regime == 'Caixa Projetado':
+                coluna_regime = 'Vencimento'
 
             # Calcular totais com base no regime
-            total_recebimentos = df_receivables_filtrado[df_receivables_filtrado[coluna_regime].between(start_date, end_date)]['Recebimentos'].sum()
+            total_recebimentos = (
+                df_receivables_filtrado[df_receivables_filtrado[coluna_regime].between(start_date, end_date)]['Recebimentos'].sum() +
+                df_cash_report_filtrado[df_cash_report_filtrado['Data'].between(start_date, end_date)]['Recebimentos'].sum()
+            )
+
             total_pagamentos = df_payables_filtrado[df_payables_filtrado[coluna_regime].between(start_date, end_date)]['Pagamentos'].sum()
             saldo_liquido = total_recebimentos - total_pagamentos
 
@@ -431,8 +463,10 @@ def main():
                 # Filtrar os dados com base no regime
                 if regime == 'Caixa':
                     coluna_regime = 'Pagamento'
-                else:
+                elif regime == 'Competência':
                     coluna_regime = 'Data'
+                elif regime == 'Caixa Projetado':
+                    coluna_regime = 'Vencimento'
 
                 # Calcular recebimentos e pagamentos por unidade com base no regime
                 recebimentos_por_unidade = df_receivables[df_receivables[coluna_regime].between(start_date, end_date)].groupby('Unidade')['Recebimentos'].sum().reset_index()
